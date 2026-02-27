@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>取調室 - Interrogation Simulator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d0d0d; }
+  #root { min-height: 100vh; }
+
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;700;900&family=Noto+Sans+JP:wght@300;400;700&display=swap');
+
+  .cursor-blink { animation: blink 1s step-end infinite; color: #666; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .glitch-text { animation: glitch-anim 3s infinite; }
+  @keyframes glitch-anim {
+    0%, 93%, 100% { text-shadow: none; }
+    94% { text-shadow: -2px 0 #c44133, 2px 0 #334ac4; }
+    95% { text-shadow: 2px 0 #c44133, -2px 0 #334ac4; }
+    96% { text-shadow: none; }
+    97% { text-shadow: -1px 0 #c44133, 1px 0 #334ac4; }
+  }
+
+  .choice-btn {
+    display: block; width: 100%; text-align: left; padding: 16px 20px;
+    margin-bottom: 10px; background: #1a1812; border: 1px solid #3a3528;
+    color: #d4d0c8; font-family: 'Noto Sans JP', sans-serif; font-size: 14px;
+    line-height: 1.7; cursor: pointer; transition: all 0.2s; border-radius: 2px;
+  }
+  .choice-btn:hover { background: #2a2518; border-color: #c44133; box-shadow: 0 0 15px #c4413322; }
+  .choice-btn:active { background: #3a2518; }
+
+  .start-btn {
+    display: inline-block; padding: 14px 48px; background: transparent;
+    border: 1px solid #c44133; color: #c44133; font-family: 'Noto Serif JP', serif;
+    font-size: 16px; cursor: pointer; letter-spacing: 6px; transition: all 0.3s;
+  }
+  .start-btn:hover { background: #c44133; color: #0d0d0d; }
+
+  .confession-box {
+    background: #fdfbf5; color: #1a1a1a; padding: 40px 36px;
+    font-family: 'Noto Serif JP', serif; font-size: 13px; line-height: 2.2;
+    border: none; box-shadow: 0 2px 20px rgba(0,0,0,0.3);
+    max-height: 70vh; overflow-y: auto;
+  }
+  .confession-box::-webkit-scrollbar { width: 6px; }
+  .confession-box::-webkit-scrollbar-track { background: #f0ece0; }
+  .confession-box::-webkit-scrollbar-thumb { background: #ccc; }
+
+  .fade-in { animation: fadeIn 1s ease-in; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .slide-up { animation: slideUp 0.5s ease-out; }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Seal stamp animations */
+  .seal-stamp {
+    transition: opacity 0.1s, transform 0.3s;
+  }
+  .seal-animate {
+    animation: stampDown 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  .seal-animate-delay {
+    animation: stampDown 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.3s forwards;
+    opacity: 0;
+  }
+  @keyframes stampDown {
+    0% { opacity: 0; transform: scale(2.5) rotate(-8deg); }
+    50% { opacity: 1; transform: scale(0.92) rotate(1deg); }
+    70% { transform: scale(1.04) rotate(-0.5deg); }
+    100% { opacity: 1; transform: scale(1) rotate(0deg); }
+  }
+
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+
+const SCENARIOS = [
+  {
+    id: 1,
+    scene: "あなたは同僚の山田さんと居酒屋で飲んだ後、終電で帰宅した。翌朝、山田さんが路上で倒れているのが発見された。あなたは「参考人」として呼ばれた。",
+    interrogator: "まあ楽にしてください。ちょっと話を聞きたいだけですから。昨日、山田さんと飲みましたね？何時頃まで一緒でしたか？",
+    choices: [
+      {
+        label: "A：「23時頃まで一緒に飲んでいました」",
+        description: "正直に答える",
+        reaction: "23時ね…。じゃあ、山田さんが倒れていたのが発見されたのは23時40分頃なんですよ。あなたが最後に一緒にいた人物ということになりますね。",
+        confession_line: "被疑者は、被害者と当日23時頃まで飲食を共にしていた旨供述しており、犯行直前まで被害者と行動を共にしていたことが認められる。",
+        damage: 15
+      },
+      {
+        label: "B：「ちょっと正確な時間は覚えてないんですが…」",
+        description: "曖昧にかわす",
+        reaction: "覚えてない？一緒に飲んでた相手がそんな目に遭ってるのに、時間も覚えてないんですか？何か隠してるんじゃないですか？",
+        confession_line: "被疑者は、被害者との別れの時刻について「覚えていない」と供述を曖昧にしており、犯行時刻前後の自己の行動について積極的に明らかにしようとしない不自然な態度が認められる。",
+        damage: 20
+      }
+    ]
+  },
+  {
+    id: 2,
+    scene: "",
+    interrogator: "山田さんとの関係はどうだったんですか？仲良かったんですか？",
+    choices: [
+      {
+        label: "A：「普通の同僚です。たまに飲みに行く程度で」",
+        description: "普通の関係だと答える",
+        reaction: "「普通の同僚」ね。でもね、周りの人に聞いたら、最近ちょっと言い合いをしてたって聞いてますよ？プロジェクトの方針で揉めてたとか。",
+        confession_line: "被疑者は当初「普通の同僚関係」と供述したが、関係者の供述により両名の間にプロジェクトを巡る確執があったことが判明しており、被疑者の供述は虚偽であると認められ、被害者との間に動機となり得るトラブルの存在が裏付けられた。",
+        damage: 20
+      },
+      {
+        label: "B：「まあ、仕事のことで意見がぶつかることはありましたけど…」",
+        description: "正直に認める",
+        reaction: "意見がぶつかる、ね。それってつまりトラブルがあったってことですよね。どの程度のものだったんですか？声を荒げたこともあるんじゃないですか？",
+        confession_line: "被疑者自身が被害者との間にトラブルがあったことを認めており、両名の間に感情的な対立があったことは明らかである。",
+        damage: 15
+      }
+    ]
+  },
+  {
+    id: 3,
+    scene: "",
+    interrogator: "（机をバンと叩く）\nいい加減にしてくれませんかね！こっちはね、あなたのために時間を使ってやってるんですよ。山田さんは今、意識不明で病院にいるんです。あなたが最後に会った人間なんですよ。わかってますか、この状況？",
+    choices: [
+      {
+        label: "A：「わかっています…。でも私は何もしていません」",
+        description: "冷静に否認する",
+        reaction: "何もしてない人間がそんなに緊張するかね？手、震えてますよ。やましいことがないならもっと堂々としたらどうですか？",
+        confession_line: "被疑者は否認するも、取調べ中に手の震えなど動揺を示す挙動が認められ、供述態度に真摯さを欠くものであった。",
+        damage: 15
+      },
+      {
+        label: "B：「弁護士を呼んでもらえませんか？」",
+        description: "弁護士を要求する",
+        reaction: "弁護士ぁ？あのね、まだあなたは「参考人」なんですよ。疑われてるわけじゃない。ただの話を聞いてるだけ。弁護士なんて呼んだら、かえって怪しまれますよ？自分の立場悪くしたいんですか？",
+        confession_line: "なお、被疑者は取調べの初期段階から弁護人の選任を要求する等、供述を拒む姿勢を見せており、自己の関与について追及されることを強く警戒していたことがうかがわれる。",
+        damage: 25
+      }
+    ]
+  },
+  {
+    id: 4,
+    scene: "",
+    interrogator: "ところでね、山田さんと別れてから家に着くまで、どういうルートで帰ったんですか？",
+    choices: [
+      {
+        label: "A：「駅まで歩いて、○○線で△△駅まで乗って、そこから歩いて帰りました」",
+        description: "具体的に説明する",
+        reaction: "ふーん。でもね、その時間帯の防犯カメラ、まだ全部確認できてないんですよ。もし映ってなかったら…どうします？ちょっと寄り道でもしました？",
+        confession_line: "被疑者は帰宅経路を供述したが、当該経路上の防犯カメラ映像による裏付けは現時点で得られておらず、供述の信用性には疑問が残る。",
+        damage: 15
+      },
+      {
+        label: "B：「酔ってたので細かいことはあまり…」",
+        description: "酔っていたのでよく覚えていないと答える",
+        reaction: "へぇ。そんなに酔ってたんだ。酔っ払って記憶がないような状態で…何をしたか覚えてないってことですか？もしかして、何かしてしまったけど覚えてない…ってこともあり得ますよね？",
+        confession_line: "被疑者は当時泥酔状態であった旨供述しており、犯行時刻前後の行動について記憶が欠落していることを自認している。このことは、酩酊状態における犯行の可能性を否定し得ないものである。",
+        damage: 25
+      }
+    ]
+  },
+  {
+    id: 5,
+    scene: "",
+    interrogator: "（別の取調官が入ってくる。優しそうな年配の男。）\n「まあまあ、お茶でも飲んでください。さっきの若い衆は血気盛んで…すみませんね。あなたが犯人だなんて私は思ってませんよ。ただね、あなたの話にちょっと辻褄が合わないところがあるんです。協力してもらえれば、すぐ帰れますから。」",
+    choices: [
+      {
+        label: "A：「ありがとうございます…。何でも聞いてください」",
+        description: "好意的な態度に安心して協力する",
+        reaction: "よかった。で、実はね…山田さんの上着に、あなたの指紋がついてたんですよ。別れ際に肩でも叩きました？それとも…掴みましたか？",
+        confession_line: "被疑者は任意に取調べに応じ、被害者の着衣に自己の指紋が付着していたことについて問われると、被害者の身体に直接接触したことを認める供述を行った。",
+        damage: 20
+      },
+      {
+        label: "B：「帰りたいんですが…」",
+        description: "帰宅を要求する",
+        reaction: "帰りたい？ まあ、帰っていただいて構いませんよ。ただね、こうやって任意で協力していただけるうちに済ませた方が…あなたのためですよ。次はね、令状を持って伺うことになるかもしれない。そうなると職場にもご近所にも知られますよ？",
+        confession_line: "被疑者は取調べ途中において退去の意思を示したものの、捜査の必要性及び今後の手続の見通しについて説明を受けた後、引き続き取調べに応じたものであり、任意性に疑いはない。",
+        damage: 15
+      }
+    ]
+  },
+  {
+    id: 6,
+    scene: "",
+    interrogator: "正直にね、聞きますよ。山田さんに対して、腹が立つことはなかったですか？人間だもの、ムカつくことぐらいあるでしょう。",
+    choices: [
+      {
+        label: "A：「それは…まあ、仕事の上では多少はありましたけど」",
+        description: "人として正直に少しは認める",
+        reaction: "ほら、やっぱりね。それが普通ですよ。で、その怒りが昨日の夜、お酒も入って…ちょっと爆発しちゃったってことはないですか？",
+        confession_line: "被疑者は、被害者に対して日頃から不満や怒りの感情を抱いていたことを自認しており、犯行当日も飲酒の上で被害者と二人きりであったことからすれば、積もり積もった感情が飲酒により抑制が効かなくなり、犯行に及んだ経緯として合理的に理解できる。",
+        damage: 25
+      },
+      {
+        label: "B：「別に。普通の仕事仲間です」",
+        description: "完全否定する",
+        reaction: "嘘はやめてください。あなたの会社の人、何人にも話聞いてるんですよ。会議で山田さんと怒鳴り合いになったこと、みんな知ってますよ？なぜ嘘をつく必要があるんですか？",
+        confession_line: "被疑者は被害者との関係について虚偽の供述を繰り返しており、客観的証拠と矛盾する供述態度からは、自己の犯行を隠蔽しようとする意図が看取される。",
+        damage: 20
+      }
+    ]
+  },
+  {
+    id: 7,
+    scene: "",
+    interrogator: "（資料をパサッと机に置く）\nこれね、現場付近の防犯カメラの映像を解析した結果なんですけどね。あなたによく似た人物が映ってるんですよ。23時15分頃。あなた「すぐ駅に向かった」って言いましたよね？この15分の空白、どう説明します？",
+    choices: [
+      {
+        label: "A：「コンビニに寄ったかもしれません。酔ってたので…」",
+        description: "思い出せる範囲で説明を試みる",
+        reaction: "コンビニ？どこのコンビニですか？レシートは？買ったものは？…覚えてない？都合よく覚えてないですね。現場のすぐ近くにいたのに。",
+        confession_line: "被疑者は犯行時刻に現場付近に所在していたことについて、「コンビニに寄った可能性がある」旨供述するも、具体的な店舗名、購入品等を一切供述できず、当該供述には何ら裏付けがなく、現場付近における滞留の合理的説明とは認め難い。",
+        damage: 20
+      },
+      {
+        label: "B：「似た人物って、私だって証拠はあるんですか？」",
+        description: "証拠の信頼性を問う",
+        reaction: "ほう、急に強気ですね。何かやましいから必死なんじゃないですか？本当に無関係な人はね、そうやってムキにならないもんですよ。",
+        confession_line: "被疑者は、防犯カメラ映像に映る人物が自己である可能性について追及されると、にわかに攻撃的な態度に転じ、証拠の存否について逆質問を行うなど、防御的反応を示した。",
+        damage: 15
+      }
+    ]
+  },
+  {
+    id: 8,
+    scene: "取り調べは既に6時間を超えている。あなたは疲労困憊で、頭がぼんやりしている。",
+    interrogator: "（溜息をつきながら）\nねえ、もう夜中の2時ですよ。あなただって疲れたでしょう。私も疲れた。もうね、楽になりませんか？ちょっと押しちゃったとか、肩がぶつかったとか、その程度のことでしょう？故意じゃないんでしょう？そう言ってくれれば、今日はもう帰れますよ。",
+    choices: [
+      {
+        label: "A：「…もしかしたら、別れ際にちょっとぶつかったかもしれません」",
+        description: "疲労の限界で小さな譲歩をする",
+        reaction: "そう、それでいいんですよ。ぶつかった。それだけのことだ。じゃあ、その状況をもう少し詳しく教えてもらえますか？どっちの手で？どのくらいの強さで？",
+        confession_line: "被疑者はついに被害者に対する有形力の行使を認め、「別れ際にぶつかった」旨供述した。その後の追及に対し、被疑者は接触の態様について詳細な供述を行っており、被害者の負傷と矛盾しない内容であった。",
+        damage: 35
+      },
+      {
+        label: "B：「何もしていません。帰らせてください」",
+        description: "疲れていても否認を続ける",
+        reaction: "帰す帰さないはこっちが決めることじゃない。あなたの供述次第なんですよ。やってないなら、なぜそれを証明できないんですか？もう何時間も経ってるのに。",
+        confession_line: "被疑者は長時間の取調べにおいても一貫して否認を続けたが、自己の無実を裏付ける客観的証拠を何ら提示できていない点は看過できない。",
+        damage: 10
+      }
+    ]
+  }
+];
+
+const generateConfession = (choices, totalDamage) => {
+  const date = "\u4ee4\u548c\uff18\u5e74\uff12\u6708\uff12\uff17\u65e5";
+  const lines = choices.map(c => c.confession_line);
+  const level = totalDamage >= 130 ? "full" : totalDamage >= 100 ? "high" : "medium";
+
+  const header = `\u4f9b\u8ff0\u8abf\u66f8
+
+                                        ${date}
+                                    \u25cb\u25cb\u8b66\u5bdf\u7f72
+
+\u672c\u8077\u306f\u3001\u25cb\u25cb\u770c\u25cb\u25cb\u8b66\u5bdf\u7f72\u53f8\u6cd5\u8b66\u5bdf\u54e1\u30fb\u8b66\u90e8\u88dc\u3000\u4f50\u85e4\u7fa9\u660e\u3068\u3057\u3066\u3001\u50b7\u5bb3\u88ab\u7591\u4e8b\u4ef6\u306b\u3064\u304d\u3001\u88ab\u7591\u8005\u304b\u3089\u4ee5\u4e0b\u306e\u3068\u304a\u308a\u4f9b\u8ff0\u3092\u5f97\u305f\u306e\u3067\u3001\u3053\u308c\u3092\u9332\u53d6\u3057\u3001\u4f9b\u8ff0\u8abf\u66f8\u3092\u4f5c\u6210\u3059\u308b\u3002
+
+\u88ab\u7591\u8005\u3000\u4f4f\u5c45\u3000\u6771\u4eac\u90fd\u25cb\u25cb\u533a\u25cb\u25cb\u753a\uff11\u4e01\u76ee\uff12\u756a\uff13\u53f7
+\u3000\u3000\u3000\u3000\u8077\u696d\u3000\u4f1a\u793e\u54e1
+\u3000\u3000\u3000\u3000\u6c0f\u540d\u3000\uff08\u3042\u306a\u305f\uff09
+\u3000\u3000\u3000\u3000\u751f\u5e74\u6708\u65e5\u3000\u7701\u7565
+
+\u4e0a\u8a18\u306e\u8005\u306b\u5bfe\u3057\u3001\u3042\u3089\u304b\u3058\u3081\u81ea\u5df1\u306e\u610f\u601d\u306b\u53cd\u3057\u3066\u4f9b\u8ff0\u3092\u3059\u308b\u5fc5\u8981\u304c\u306a\u3044\u65e8\u3092\u544a\u3052\u3066\u53d6\u8abf\u3079\u305f\u3068\u3053\u308d\u3001\u4efb\u610f\u306b\u6b21\u306e\u3068\u304a\u308a\u4f9b\u8ff0\u3057\u305f\u3002`;
+
+  const body1 = `
+
+\uff11\u3000\u88ab\u5bb3\u8005\u3068\u306e\u95a2\u4fc2\u306b\u3064\u3044\u3066
+
+${lines[0] || ""}
+${lines[1] || ""}
+${lines[5] || ""}`;
+
+  const body2 = `
+
+\uff12\u3000\u72af\u884c\u5f53\u65e5\u306e\u7d4c\u7def\u53ca\u3073\u72b6\u6cc1\u306b\u3064\u3044\u3066
+
+\u3000\u79c1\u306f\u3001\u4ee4\u548c\uff18\u5e74\uff12\u6708\uff12\uff16\u65e5\u3001\u88ab\u5bb3\u8005\u5c71\u7530\u5065\u4e00\uff08\u4ee5\u4e0b\u300c\u88ab\u5bb3\u8005\u300d\u3068\u3044\u3046\u3002\uff09\u3068\u6771\u4eac\u90fd\u25cb\u25cb\u533a\u6240\u5728\u306e\u5c45\u9152\u5c4b\u300c\u9ce5\u3069\u308a\u25cb\u25cb\u5e97\u300d\u306b\u304a\u3044\u3066\u3001\u5348\u5f8c\uff17\u6642\u9803\u304b\u3089\u98f2\u98df\u3092\u5171\u306b\u3057\u3066\u3044\u305f\u3082\u306e\u3067\u3042\u308b\u3002
+${lines[3] || ""}`;
+
+  const body3 = `
+
+\uff13\u3000\u53d6\u8abf\u3079\u306b\u304a\u3051\u308b\u4f9b\u8ff0\u7d4c\u904e\u306b\u3064\u3044\u3066
+
+${lines[2] || ""}
+${lines[4] || ""}
+${lines[6] || ""}`;
+
+  const bodyFinal = `
+
+\uff14\u3000\u72af\u884c\u72b6\u6cc1\u306b\u3064\u3044\u3066
+
+${lines[7] || ""}`;
+
+  const conclusions = {
+    full: `
+
+\uff15\u3000\u7dcf\u5408\u8a55\u4fa1
+
+\u3000\u4ee5\u4e0a\u306e\u4f9b\u8ff0\u7d4c\u904e\u306b\u9451\u307f\u308c\u3070\u3001\u88ab\u7591\u8005\u306f\u3001\u88ab\u5bb3\u8005\u3068\u306e\u9593\u306b\u65e5\u9803\u304b\u3089\u306e\u78ba\u57f7\u3092\u6709\u3057\u3001\u72af\u884c\u5f53\u65e5\u306f\u88ab\u5bb3\u8005\u3068\u9577\u6642\u9593\u306b\u308f\u305f\u308a\u98f2\u9152\u3057\u305f\u4e0a\u3001\u72af\u884c\u6642\u523b\u76f4\u524d\u307e\u3067\u88ab\u5bb3\u8005\u3068\u4e8c\u4eba\u304d\u308a\u3067\u884c\u52d5\u3092\u5171\u306b\u3057\u3066\u3044\u305f\u3082\u306e\u3067\u3042\u308a\u3001\u72af\u884c\u73fe\u5834\u4ed8\u8fd1\u306b\u6240\u5728\u3057\u3066\u3044\u305f\u3053\u3068\u3082\u8a8d\u3081\u3089\u308c\u308b\u3002\u88ab\u7591\u8005\u306f\u6700\u7d42\u7684\u306b\u88ab\u5bb3\u8005\u306b\u5bfe\u3059\u308b\u6709\u5f62\u529b\u306e\u884c\u4f7f\u3092\u8a8d\u3081\u308b\u4f9b\u8ff0\u3092\u3057\u3066\u304a\u308a\u3001\u3053\u308c\u306f\u88ab\u5bb3\u8005\u306e\u53d7\u50b7\u72b6\u6cc1\u3068\u77db\u76fe\u3057\u306a\u3044\u3002
+\u3000\u88ab\u7591\u8005\u306e\u72af\u884c\u3092\u63a8\u8a8d\u3055\u305b\u308b\u9593\u63a5\u4e8b\u5b9f\u304c\u591a\u6570\u8a8d\u3081\u3089\u308c\u3001\u88ab\u7591\u8005\u306e\u5426\u8a8d\u4f9b\u8ff0\u306b\u306f\u4fe1\u7528\u6027\u304c\u4e4f\u3057\u304f\u3001\u4e0a\u8a18\u81ea\u767d\u306e\u4fe1\u7528\u6027\u306f\u9ad8\u3044\u3068\u8a8d\u3081\u3089\u308c\u308b\u3002`,
+    high: `
+
+\uff15\u3000\u7dcf\u5408\u8a55\u4fa1
+
+\u3000\u4ee5\u4e0a\u306e\u4f9b\u8ff0\u7d4c\u904e\u306b\u9451\u307f\u308c\u3070\u3001\u88ab\u7591\u8005\u306f\u3001\u88ab\u5bb3\u8005\u3068\u72af\u884c\u76f4\u524d\u307e\u3067\u884c\u52d5\u3092\u5171\u306b\u3057\u3001\u72af\u884c\u73fe\u5834\u4ed8\u8fd1\u306b\u6240\u5728\u3057\u3066\u3044\u305f\u3053\u3068\u304c\u8a8d\u3081\u3089\u308c\u308b\u3068\u3053\u308d\u3001\u81ea\u5df1\u306e\u884c\u52d5\u306b\u3064\u3044\u3066\u5408\u7406\u7684\u306a\u8aac\u660e\u3092\u884c\u3046\u3053\u3068\u304c\u3067\u304d\u3066\u304a\u3089\u305a\u3001\u88ab\u5bb3\u8005\u3068\u306e\u9593\u306b\u52d5\u6a5f\u3068\u306a\u308a\u5f97\u308b\u4e8b\u60c5\u3082\u5b58\u5728\u3057\u3066\u3044\u308b\u3002
+\u3000\u3053\u308c\u3089\u306e\u9593\u63a5\u4e8b\u5b9f\u3092\u7dcf\u5408\u3059\u308c\u3070\u3001\u88ab\u7591\u8005\u304c\u72af\u884c\u306b\u53ca\u3093\u3060\u84cb\u7136\u6027\u306f\u9ad8\u3044\u3068\u8a00\u308f\u3056\u308b\u3092\u5f97\u306a\u3044\u3002`,
+    medium: `
+
+\uff15\u3000\u7dcf\u5408\u8a55\u4fa1
+
+\u3000\u4ee5\u4e0a\u306e\u4f9b\u8ff0\u7d4c\u904e\u306b\u9451\u307f\u308c\u3070\u3001\u88ab\u7591\u8005\u306f\u72af\u884c\u3078\u306e\u95a2\u4e0e\u3092\u4e00\u8cab\u3057\u3066\u5426\u8a8d\u3057\u3066\u3044\u308b\u3082\u306e\u306e\u3001\u81ea\u5df1\u306e\u884c\u52d5\u306b\u95a2\u3059\u308b\u4f9b\u8ff0\u306f\u66d6\u6627\u304b\u3064\u4e0d\u81ea\u7136\u306a\u90e8\u5206\u304c\u591a\u304f\u3001\u5ba2\u89b3\u7684\u8a3c\u62e0\u3068\u3082\u5fc5\u305a\u3057\u3082\u7b26\u5408\u3057\u306a\u3044\u3002\u88ab\u7591\u8005\u304c\u72af\u884c\u6642\u523b\u524d\u5f8c\u306b\u88ab\u5bb3\u8005\u3068\u884c\u52d5\u3092\u5171\u306b\u3057\u3066\u3044\u305f\u3053\u3068\u306f\u8a8d\u3081\u3089\u308c\u3001\u5f15\u304d\u7d9a\u304d\u635c\u67fb\u306e\u5fc5\u8981\u6027\u304c\u9ad8\u3044\u3068\u8a8d\u3081\u3089\u308c\u308b\u3002`
+  };
+
+  const footer = `
+
+\u4ee5\u4e0a\u306e\u3068\u304a\u308a\u9332\u53d6\u3057\u3066\u8aad\u307f\u805e\u304b\u305b\u305f\u3068\u3053\u308d\u3001\u8aa4\u308a\u306e\u306a\u3044\u3053\u3068\u3092\u7533\u3057\u7acb\u3066\u3001\u7f72\u540d\u6307\u5370\u3057\u305f\u3002
+
+\u3000\u3000\u3000\u3000\u3000\u524d\u540c\u65e5
+\u3000\u3000\u3000\u3000\u3000\u3000\u25cb\u25cb\u770c\u25cb\u25cb\u8b66\u5bdf\u7f72
+
+\u3000\u3000\u3000\u3000\u3000\u3000\u3000\u3000\u53f8\u6cd5\u8b66\u5bdf\u54e1\u3000\u8b66\u90e8\u88dc\u3000\u4f50\u85e4\u3000\u7fa9\u660e`;
+
+  return header + body1 + body2 + body3 + bodyFinal + (conclusions[level] || conclusions.medium) + footer;
+};
+
+// Typewriter component
+function TypewriterText({ text, speed = 25, onComplete }) {
+  const [displayed, setDisplayed] = useState("");
+  const [done, setDone] = useState(false);
+  const indexRef = useRef(0);
+  useEffect(() => { setDisplayed(""); indexRef.current = 0; setDone(false); }, [text]);
+  useEffect(() => {
+    if (done) return;
+    const interval = setInterval(() => {
+      indexRef.current++;
+      setDisplayed(text.slice(0, indexRef.current));
+      if (indexRef.current >= text.length) { clearInterval(interval); setDone(true); onComplete?.(); }
+    }, speed);
+    return () => clearInterval(interval);
+  }, [text, speed, done, onComplete]);
+  const handleClick = () => { if (!done) { setDisplayed(text); indexRef.current = text.length; setDone(true); onComplete?.(); } };
+  return <span onClick={handleClick} style={{ cursor: done ? "default" : "pointer" }}>{displayed}<span className="cursor-blink">|</span></span>;
+}
+
+// Glitch text
+function GlitchText({ children }) {
+  return <span style={{ position: "relative", display: "inline-block" }}><span className="glitch-text" data-text={children}>{children}</span></span>;
+}
+
+// Stress meter
+function StressMeter({ value }) {
+  const clamp = Math.min(100, Math.max(0, value));
+  const color = clamp < 40 ? "#4a9e5c" : clamp < 70 ? "#c4a833" : "#c44133";
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, letterSpacing: 2, color: "#888", marginBottom: 4, fontFamily: "'Noto Sans JP', sans-serif" }}>
+        <span>心理的追い詰め度</span><span style={{ color }}>{clamp}%</span>
+      </div>
+      <div style={{ background: "#1a1a1a", borderRadius: 2, height: 6, overflow: "hidden", border: "1px solid #333" }}>
+        <div style={{ width: `${clamp}%`, height: "100%", background: `linear-gradient(90deg, ${color}, ${color}dd)`, transition: "width 0.8s ease, background 0.5s ease", boxShadow: clamp > 70 ? `0 0 10px ${color}88` : "none" }} />
+      </div>
+    </div>
+  );
+}
+
+// Seal stamp animation component
+function SealStamp({ visible }) {
+  const [stamped, setStamped] = useState(false);
+  const sealRef = useRef(null);
+
+  useEffect(() => {
+    if (!visible || !sealRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !stamped) {
+            setStamped(true);
+          }
+        });
+      },
+      { threshold: 0.5 }
+    );
+    observer.observe(sealRef.current);
+    return () => observer.disconnect();
+  }, [visible, stamped]);
+
+  if (!visible) return null;
+
+  return (
+    <div ref={sealRef} style={{
+      display: "flex", justifyContent: "flex-end", gap: 32,
+      marginTop: 16, paddingRight: 24, paddingBottom: 8,
+      alignItems: "center"
+    }}>
+      {/* Sato seal */}
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: 10, color: "#666", marginBottom: 6, letterSpacing: 1 }}>㊞</div>
+        <div className={stamped ? "seal-stamp seal-animate" : "seal-stamp"} style={{
+          width: 52, height: 52, borderRadius: "50%", border: "2.5px solid #c44133",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontFamily: "'Noto Serif JP', serif", fontSize: 16, fontWeight: 700,
+          color: "#c44133", opacity: stamped ? 1 : 0, position: "relative",
+          background: "radial-gradient(circle, transparent 60%, #c4413308 100%)"
+        }}>
+          <div style={{ position: "absolute", inset: 3, borderRadius: "50%", border: "1px solid #c4413366" }} />
+          佐藤
+        </div>
+      </div>
+      {/* Fingerprint (suspect) */}
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: 10, color: "#666", marginBottom: 6, letterSpacing: 1 }}>指印</div>
+        <div className={stamped ? "seal-stamp seal-animate-delay" : "seal-stamp"} style={{
+          width: 44, height: 56, borderRadius: "40% 40% 46% 46%",
+          background: stamped ? "radial-gradient(ellipse, #c44133cc 0%, #c4413388 40%, #c4413344 70%, transparent 100%)" : "transparent",
+          opacity: stamped ? 0.85 : 0, position: "relative", overflow: "hidden"
+        }}>
+          {/* fingerprint lines */}
+          {stamped && [0,1,2,3,4,5,6,7].map(i => (
+            <div key={i} style={{
+              position: "absolute",
+              top: 8 + i * 5.5,
+              left: "50%", transform: "translateX(-50%)",
+              width: 22 + Math.sin(i * 0.9) * 10,
+              height: 2.5,
+              borderRadius: 2,
+              background: `rgba(140, 30, 20, ${0.25 + Math.random() * 0.2})`,
+              filter: "blur(0.3px)"
+            }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [phase, setPhase] = useState("title");
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [choices, setChoices] = useState([]);
+  const [damage, setDamage] = useState(0);
+  const [currentReaction, setCurrentReaction] = useState("");
+  const [showChoices, setShowChoices] = useState(false);
+  const [textDone, setTextDone] = useState(false);
+  const [flickerOpacity, setFlickerOpacity] = useState(1);
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    const flicker = setInterval(() => {
+      if (Math.random() < 0.05) { setFlickerOpacity(0.85); setTimeout(() => setFlickerOpacity(1), 80); }
+    }, 200);
+    return () => clearInterval(flicker);
+  }, []);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [showChoices, currentReaction, phase, questionIndex, textDone]);
+
+  const scenario = SCENARIOS[questionIndex];
+
+  const handleChoice = (choice) => {
+    setShowChoices(false);
+    setCurrentReaction(choice.reaction);
+    setChoices(prev => [...prev, choice]);
+    setDamage(prev => prev + choice.damage);
+  };
+
+  const handleNext = () => {
+    setCurrentReaction(""); setTextDone(false);
+    if (questionIndex + 1 >= SCENARIOS.length) { setPhase("result"); } else { setQuestionIndex(prev => prev + 1); setPhase("game"); }
+  };
+
+  const containerStyle = { minHeight: "100vh", background: "#0d0d0d", color: "#d4d0c8", fontFamily: "'Noto Serif JP', 'Hiragino Mincho Pro', serif", position: "relative", opacity: flickerOpacity, transition: "opacity 0.05s" };
+  const roomStyle = { maxWidth: 680, margin: "0 auto", padding: "24px 20px", minHeight: "100vh", position: "relative" };
+
+  // Title
+  if (phase === "title") {
+    return (
+      <div style={containerStyle}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 20, textAlign: "center" }}>
+          <div style={{ fontSize: 11, letterSpacing: 8, color: "#666", marginBottom: 32, fontFamily: "'Noto Sans JP', sans-serif" }}>INTERROGATION SIMULATOR</div>
+          <h1 style={{ fontSize: "clamp(28px, 6vw, 44px)", fontWeight: 900, letterSpacing: 6, marginBottom: 16, lineHeight: 1.4, color: "#e8e4dc" }}><GlitchText>取調室</GlitchText></h1>
+          <p style={{ fontSize: 14, color: "#888", marginBottom: 48, lineHeight: 2, maxWidth: 400, fontFamily: "'Noto Sans JP', sans-serif" }}>あなたの「普通の受け答え」が<br/>どのように供述調書に変わるのか──<br/>体感してください。</p>
+          <button className="start-btn" onClick={() => setPhase("intro")}>入室する</button>
+          <div style={{ marginTop: 64, fontSize: 11, color: "#555", lineHeight: 2, fontFamily: "'Noto Sans JP', sans-serif" }}>※ このゲームはフィクションですが、<br/>取調べの構造的問題は現実に基づいています。</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Intro
+  if (phase === "intro") {
+    return (
+      <div style={containerStyle}>
+        <div style={roomStyle} className="fade-in">
+          <div style={{ paddingTop: "15vh" }}>
+            <div style={{ background: "#14120e", border: "1px solid #2a2520", padding: "32px 28px", marginBottom: 32, lineHeight: 2.2, fontSize: 14 }}>
+              <TypewriterText text={SCENARIOS[0].scene} speed={30} onComplete={() => setTextDone(true)} />
+            </div>
+            {textDone && (
+              <div style={{ textAlign: "center", marginTop: 40 }} className="fade-in">
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 20, fontFamily: "'Noto Sans JP', sans-serif" }}>あなたに黙秘権は告げられていない。</div>
+                <button className="start-btn" onClick={() => { setPhase("game"); setTextDone(false); }}>取調べ開始</button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Result
+  if (phase === "result") {
+    const confession = generateConfession(choices, damage);
+    return (
+      <div style={containerStyle}>
+        <div style={roomStyle} className="fade-in">
+          <div style={{ paddingTop: 32 }}>
+            <StressMeter value={damage} />
+            <div style={{ fontSize: 11, letterSpacing: 4, color: "#c44133", marginBottom: 20, fontFamily: "'Noto Sans JP', sans-serif" }}>取調べ終了 ── 供述調書が作成されました</div>
+            <div className="confession-box">
+              <div style={{ whiteSpace: "pre-wrap" }}>{confession}</div>
+              <SealStamp visible={true} />
+            </div>
+            <div style={{ marginTop: 32, padding: "24px 20px", background: "#14120e", border: "1px solid #2a2520", fontSize: 13, lineHeight: 2.2, color: "#aaa", fontFamily: "'Noto Sans JP', sans-serif" }}>
+              {damage >= 130 ? (<><div style={{ color: "#c44133", fontWeight: 700, marginBottom: 8 }}>あなたは「自白」したことになりました。</div>あなたの受け答えの一つひとつが、巧みに文脈を変えられ、あなたが犯人であるかのような供述調書が出来上がりました。これが、密室の取調べで実際に起きていることです。</>) :
+               damage >= 100 ? (<><div style={{ color: "#c4a833", fontWeight: 700, marginBottom: 8 }}>あなたはかなり追い詰められました。</div>直接的な自白には至りませんでしたが、供述調書はあなたが犯人であるかのように読める内容になっています。これが実際の裁判で「証拠」として採用されるのです。</>) :
+               (<><div style={{ color: "#4a9e5c", fontWeight: 700, marginBottom: 8 }}>あなたは何とか耐えました。</div>しかし、供述調書をよく読んでみてください。否認を続けたこと自体が「不自然」「隠蔽の意図」として記録されています。取調室では、何を言っても、何を言わなくても、不利に使われるのです。</>)}
+            </div>
+            <div style={{ marginTop: 24, padding: "20px", fontSize: 12, lineHeight: 2, color: "#666", fontFamily: "'Noto Sans JP', sans-serif", borderTop: "1px solid #222" }}>
+              <div style={{ fontWeight: 700, color: "#888", marginBottom: 8 }}>日本の刑事司法の現実：</div>
+              有罪率99.9%。取調べの全面録画（可視化）は2019年に一部義務化されたが、対象は裁判員裁判事件と検察独自捜査事件に限られ、全事件のわずか約3%。残り97%の事件の取調べは、今もなお密室で行われている。
+            </div>
+            <div style={{ textAlign: "center", marginTop: 32, marginBottom: 48 }}>
+              <button className="start-btn" onClick={() => { setPhase("title"); setQuestionIndex(0); setChoices([]); setDamage(0); setCurrentReaction(""); setTextDone(false); }}>最初から</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Game
+  return (
+    <div style={containerStyle}>
+      <div style={roomStyle} ref={scrollRef}>
+        <div style={{ paddingTop: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, paddingBottom: 12, borderBottom: "1px solid #222" }}>
+            <div style={{ fontSize: 11, letterSpacing: 3, color: "#666", fontFamily: "'Noto Sans JP', sans-serif" }}>第{questionIndex + 1}問 / {SCENARIOS.length}</div>
+            <div style={{ fontSize: 11, color: "#c44133", fontFamily: "'Noto Sans JP', sans-serif" }}>● REC</div>
+          </div>
+          <StressMeter value={damage} />
+          {scenario.scene && (
+            <div style={{ fontSize: 13, color: "#777", marginBottom: 20, padding: "12px 16px", background: "#111", borderLeft: "2px solid #333", fontFamily: "'Noto Sans JP', sans-serif", lineHeight: 1.9 }}>{scenario.scene}</div>
+          )}
+          <div style={{ background: "#14120e", border: "1px solid #2a2520", padding: "24px 20px", marginBottom: 24, lineHeight: 2.2, fontSize: 14 }}>
+            <div style={{ fontSize: 11, color: "#c44133", marginBottom: 12, letterSpacing: 2, fontFamily: "'Noto Sans JP', sans-serif" }}>取調官</div>
+            <TypewriterText text={scenario.interrogator} speed={25} onComplete={() => { if (!currentReaction) setShowChoices(true); }} />
+          </div>
+          {showChoices && !currentReaction && (
+            <div className="slide-up">
+              <div style={{ fontSize: 11, color: "#666", marginBottom: 12, letterSpacing: 2, fontFamily: "'Noto Sans JP', sans-serif" }}>あなたの応答を選んでください</div>
+              {scenario.choices.map((choice, i) => (
+                <button key={i} className="choice-btn" onClick={() => handleChoice(choice)}>
+                  <div>{choice.label}</div>
+                  <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>（{choice.description}）</div>
+                </button>
+              ))}
+            </div>
+          )}
+          {currentReaction && (
+            <div className="fade-in" style={{ background: "#1a1210", border: "1px solid #3a2520", padding: "24px 20px", marginBottom: 24, lineHeight: 2.2, fontSize: 14 }}>
+              <div style={{ fontSize: 11, color: "#c44133", marginBottom: 12, letterSpacing: 2, fontFamily: "'Noto Sans JP', sans-serif" }}>取調官の反応</div>
+              <TypewriterText text={currentReaction} speed={25} onComplete={() => setTextDone(true)} />
+            </div>
+          )}
+          {currentReaction && textDone && (
+            <div style={{ textAlign: "center", marginTop: 24, marginBottom: 40 }} className="fade-in">
+              <button className="start-btn" onClick={handleNext}>{questionIndex + 1 >= SCENARIOS.length ? "供述調書を見る" : "次へ"}</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+
+</script>
+</body>
+</html>
